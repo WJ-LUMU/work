@@ -1,195 +1,155 @@
 # main.py
 """
-80码生产数据自动整理工具 - 主程序入口
-
-这是程序的主入口，负责：
-1. 获取用户输入的文件路径
-2. 调用各模块处理数据
-3. 显示处理结果
+全年生产日报自动汇总工具 - 主程序入口
 """
 
-import os
 import sys
 from pathlib import Path
-
-# 导入自定义模块
+from src.file_scanner import FileScanner
 from src.excel_reader import ExcelReader
 from src.data_processor import DataProcessor
 from src.excel_exporter import ExcelExporter
-
+from src.logger import Logger
 
 def print_welcome():
-    """打印欢迎信息"""
-    print("\n" + "="*60)
-    print("           80码生产数据自动整理工具 v1.0")
-    print("="*60 + "\n")
+    print("\n" + "="*70)
+    print("             全年生产日报自动汇总工具 v2.0")
+    print("="*70 + "\n")
 
-
-def get_file_path(prompt, file_type="Excel文件"):
-    """
-    获取用户输入的文件路径
-    
-    参数：
-        prompt: 提示信息
-        file_type: 文件类型说明
-    
-    返回：
-        Path对象或None
-    """
+def get_folder_path():
     while True:
-        print(f"\n请输入{file_type}的完整路径（或直接拖入文件）：")
-        user_input = input(f"> ").strip()
-        
-        # 处理拖入文件时的引号
+        print("请输入存放全年日报的文件夹路径：")
+        user_input = input("> ").strip()
         if user_input.startswith('"') and user_input.endswith('"'):
             user_input = user_input[1:-1]
-        
-        # 如果为空则提示
         if not user_input:
-            print(f"❌ 错误：文件路径不能为空")
+            print("错误：路径不能为空\n")
             continue
-        
-        # 转换为Path对象
-        file_path = Path(user_input)
-        
-        # 检查文件是否存在
-        if not file_path.exists():
-            print(f"❌ 错误：找不到文件 '{file_path}'")
-            print(f"   请检查路径是否正确")
+        folder_path = Path(user_input)
+        if not folder_path.exists():
+            print("错误：找不到文件夹\n")
             continue
-        
-        # 检查是否是Excel文件
-        if not str(file_path).lower().endswith(('.xlsx', '.xls')):
-            print(f"❌ 错误：请选择Excel文件（.xlsx 或 .xls）")
+        if not folder_path.is_dir():
+            print("错误：不是文件夹\n")
             continue
-        
-        print(f"✓ 已选择：{file_path}")
-        return file_path
+        print(f"已选择：{folder_path}\n")
+        return folder_path
 
+def get_standard_codes_file():
+    while True:
+        print("是否要使用固定的SKU清单文件？(y/n，默认n)")
+        choice = input("> ").strip().lower()
+        if choice in ['', 'n', 'no']:
+            return None
+        if choice in ['y', 'yes']:
+            while True:
+                print("请输入SKU清单文件路径：")
+                user_input = input("> ").strip()
+                if user_input.startswith('"') and user_input.endswith('"'):
+                    user_input = user_input[1:-1]
+                file_path = Path(user_input)
+                if not file_path.exists():
+                    print("找不到文件\n")
+                    continue
+                if not str(file_path).lower().endswith(('.xlsx', '.xls')):
+                    print("请选择Excel文件\n")
+                    continue
+                print(f"已选择：{file_path}\n")
+                return file_path
 
 def get_save_path():
-    """
-    获取保存位置
-    
-    返回：
-        Path对象
-    """
-    while True:
-        print("\n请输入结果保存位置（文��夹路径）：")
-        print("（如果直接回车，将保存到当前目录）")
-        user_input = input("> ").strip()
-        
-        # 处理拖入文件夹时的引号
-        if user_input.startswith('"') and user_input.endswith('"'):
-            user_input = user_input[1:-1]
-        
-        # 如果为空，使用当前目录
-        if not user_input:
-            save_dir = Path.cwd()
-            print(f"✓ 将保存到当前目录：{save_dir}")
-            return save_dir
-        
-        save_dir = Path(user_input)
-        
-        # 如果不存在则创建
-        if not save_dir.exists():
-            try:
-                save_dir.mkdir(parents=True, exist_ok=True)
-                print(f"✓ 已创建保存目录：{save_dir}")
-                return save_dir
-            except Exception as e:
-                print(f"❌ 错误：无法创建目录 '{save_dir}'")
-                print(f"   错误原因：{str(e)}")
-                continue
-        
-        if save_dir.is_dir():
-            print(f"✓ 已选择保存目录：{save_dir}")
-            return save_dir
-        else:
-            print(f"❌ 错误：'{save_dir}' 不是一个有效的文件夹")
-            continue
-
+    print("请输入结果保存位置(默认当前目录)：")
+    user_input = input("> ").strip()
+    if user_input.startswith('"') and user_input.endswith('"'):
+        user_input = user_input[1:-1]
+    if not user_input:
+        return Path.cwd()
+    save_dir = Path(user_input)
+    if not save_dir.exists():
+        save_dir.mkdir(parents=True, exist_ok=True)
+    return save_dir
 
 def main():
-    """主程序"""
     try:
         print_welcome()
-        
-        # 第1步：获取标准80码清单文件
-        print("【步骤1】选择标准80码清单文件")
-        print("-" * 60)
-        standard_file = get_file_path("标准80码清单文件路径")
-        if not standard_file:
-            print("❌ 已取消操作")
-            return
-        
-        # 第2步：获取生产日报文件
-        print("\n【步骤2】选择生产日报Excel文件")
-        print("-" * 60)
-        report_file = get_file_path("生产日报文件路径")
-        if not report_file:
-            print("❌ 已取消操作")
-            return
-        
-        # 第3步：获取保存位置
-        print("\n【步骤3】选择结果保存位置")
-        print("-" * 60)
+        print("【步骤1】选择输入和输出位置\n" + "-" * 70)
+        report_folder = get_folder_path()
+        standard_codes_file = get_standard_codes_file()
         save_dir = get_save_path()
         
-        # 第4步：开始处理
-        print("\n【步骤4】开始处理数据")
-        print("-" * 60)
-        print("正在读取标准80码清单...")
+        print("【步骤2】初始化系统\n" + "-" * 70)
+        logger = Logger()
+        print("日志系统已初始化\n")
         
-        # 读取标准80码清单
-        reader = ExcelReader()
-        standard_codes = reader.read_standard_codes(standard_file)
-        print(f"✓ 已读取标准80码 {len(standard_codes)} 个")
+        print("【步骤3】扫描Excel文件\n" + "-" * 70)
+        scanner = FileScanner(logger)
+        excel_files = scanner.scan_folder(report_folder)
+        print(f"找到 {len(excel_files)} 个Excel文件\n")
         
-        # 读取生产日报
-        print("正在读取生产日报...")
-        report_data = reader.read_report_sheet(report_file)
-        print(f"✓ 已读取生产日报数据 {len(report_data)} 行")
+        if not excel_files:
+            print("错误：文件夹中没有找到Excel文件\n")
+            return
         
-        # 处理数据
-        print("正在处理数据...")
-        processor = DataProcessor()
-        result = processor.process(standard_codes, report_data)
+        print("【步骤4】读取标准SKU清单\n" + "-" * 70)
+        standard_codes = []
+        if standard_codes_file:
+            reader = ExcelReader(logger)
+            try:
+                standard_codes = reader.read_standard_codes(standard_codes_file)
+                print(f"已读取标准SKU清单，共 {len(standard_codes)} 个\n")
+            except Exception as e:
+                print(f"警告：无法读取SKU清单\n")
         
-        # 导出结果
-        print("正在导出结果...")
-        exporter = ExcelExporter()
-        output_file = exporter.export(result, save_dir)
+        print("【步骤5】处理Excel文件\n" + "-" * 70)
+        reader = ExcelReader(logger)
+        processor = DataProcessor(logger, standard_codes)
         
-        # 显示结果
-        print("\n" + "="*60)
-        print("                    ✓ 处理完成")
-        print("="*60)
-        print(f"\n📊 数据统计：")
-        print(f"   标准清单内总计：{result['summary']['standard_total']} 个")
-        print(f"   新增80码总计：{result['summary']['new_total']} 个")
-        print(f"   整理后总计：{result['summary']['final_total']} 个")
-        print(f"   原始汇总表总计：{result['summary']['original_total']} 个")
+        for idx, file_path in enumerate(excel_files, 1):
+            print(f"[{idx}/{len(excel_files)}] {file_path.name}")
+            try:
+                report_data = reader.read_report_file(file_path)
+                if report_data is None:
+                    continue
+                processor.add_daily_report(file_path, report_data)
+                print(f"  成功处理")
+            except Exception as e:
+                print(f"  错误：{str(e)}")
+                logger.add_error(file_path.name, str(e))
         
-        print(f"\n📋 核对结果：")
-        if result['summary']['match_status'] == '核对一致':
-            print(f"   ✓ {result['summary']['match_status']}")
-        else:
-            print(f"   ❌ {result['summary']['match_status']}")
-            print(f"      数量差异：{result['summary']['difference']} 个")
+        print("\n【步骤6】检测重复文件\n" + "-" * 70)
+        processor.detect_duplicates()
+        duplicates_count = len(processor.duplicates)
+        print(f"检测完成，发现 {duplicates_count} 个疑似重复\n")
         
-        print(f"\n💾 结果已保存到：")
-        print(f"   {output_file}")
-        print("\n" + "="*60 + "\n")
+        print("【步骤7】生成汇总结果\n" + "-" * 70)
+        result = processor.get_result()
+        print(f"汇总完成\n")
         
+        print("【步骤8】导出Excel文件\n" + "-" * 70)
+        exporter = ExcelExporter(logger)
+        output_file = exporter.export(result, save_dir, standard_codes, processor)
+        print(f"文件已保存\n")
+        
+        print("\n" + "="*70 + "\n处理完成\n" + "="*70)
+        print(f"\n数据统计：")
+        print(f"  总文件数：{len(excel_files)}")
+        print(f"  成功读取：{result['summary']['files_processed']}")
+        print(f"  异常文件：{len(logger.errors)}")
+        print(f"  疑似重复：{duplicates_count}")
+        print(f"  汇总SKU数：{result['summary']['sku_count']}")
+        print(f"  全年总数量：{result['summary']['total_quantity']}")
+        print(f"  新增SKU：{result['summary']['new_sku_count']}")
+        print(f"\n核对结果：{result['summary']['match_status']}")
+        if result['summary']['match_status'] != '核对一致':
+            print(f"  差异：{result['summary']['difference']}")
+        print(f"\n输出文件：{output_file}\n")
+        
+    except KeyboardInterrupt:
+        print("\n程序已被中断\n")
+        sys.exit(0)
     except Exception as e:
-        print(f"\n❌ 发生错误：{str(e)}")
-        print(f"\n请检查：")
-        print(f"   1. 文件是否已被Excel或其他程序打开")
-        print(f"   2. 文件格式是否正确")
-        print(f"   3. 磁盘空间是否充足")
+        print(f"\n错误：{str(e)}\n")
         sys.exit(1)
-
 
 if __name__ == "__main__":
     main()
